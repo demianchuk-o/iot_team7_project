@@ -1,5 +1,6 @@
 from csv import DictReader
 from datetime import datetime
+from typing import List
 from domain.accelerometer import Accelerometer
 from domain.gps import Gps
 from domain.aggregated_data import AggregatedData
@@ -19,24 +20,31 @@ class FileDatasource:
         self.accelerometer_reader = None
         self.gps_reader = None
 
-    def read(self) -> AggregatedData:
-        """Метод повертає дані отримані з датчиків"""
-        try:
-            acc_row = next(self.accelerometer_reader)
-            gps_row = next(self.gps_reader)
-        except (StopIteration, TypeError):
-            # Reset readers if end of file or not started
-            self.stopReading()
-            self.startReading()
-            acc_row = next(self.accelerometer_reader)
-            gps_row = next(self.gps_reader)
+    def read(self) -> List[AggregatedData]:
+        """Метод повертає дані отримані з датчиків батчами"""
+        data_batch: List[AggregatedData] = []
+        
+        batch_size = config.BATCH_SIZE
+        
+        for _ in range(batch_size):
+            try:
+                acc_row = next(self.accelerometer_reader)
+                gps_row = next(self.gps_reader)
+            except (StopIteration, TypeError):
+                # Reset readers if end of file or not started
+                self.stopReading()
+                self.startReading()
+                acc_row = next(self.accelerometer_reader)
+                gps_row = next(self.gps_reader)
 
-        return AggregatedData(
-            Accelerometer(int(acc_row['x']), int(acc_row['y']), int(acc_row['z'])),
-            Gps(float(gps_row['longitude']), float(gps_row['latitude'])),
-            datetime.now(),
-            config.USER_ID,
-        )
+            data_batch.append(AggregatedData(
+                Accelerometer(int(acc_row['x']), int(acc_row['y']), int(acc_row['z'])),
+                Gps(float(gps_row['longitude']), float(gps_row['latitude'])),
+                datetime.now(),
+                config.USER_ID,
+            ))
+            
+        return data_batch
 
     def startReading(self, *args, **kwargs):
         """Метод повинен викликатись перед початком читання даних"""
