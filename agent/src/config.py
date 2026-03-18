@@ -16,3 +16,4 @@ MQTT_TOPIC = os.environ.get("MQTT_TOPIC") or "agent"
 
 # Delay for sending data to mqtt in seconds
 DELAY = try_parse(float, os.environ.get("DELAY")) or 1
+BATCH_SIZE = try_parse(int, os.environ.get("BATCH_SIZE")) or 5
