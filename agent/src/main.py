@@ -12,9 +12,9 @@ def connect_mqtt(broker, port):
 
     def on_connect(client, userdata, flags, rc):
         if rc == 0:
-            print(f"Connected to MQTT Broker ({broker}:{port})!")
+            print(f"Connected to MQTT Broker ({broker}:{port})!", flush=True)
         else:
-            print("Failed to connect {broker}:{port}, return code %d\n", rc)
+            print(f"Failed to connect {broker}:{port}, return code %d\n", rc, flush=True)
             exit(rc)  # Stop execution
 
     client = mqtt_client.Client()
@@ -34,10 +34,9 @@ def publish(client, topic, datasource, delay):
         # result: [0, 1]
         status = result[0]
         if status == 0:
-            pass
-            # print(f"Send `{msg}` to topic `{topic}`")
+            print(f"Send `{msg}` to topic `{topic}`", flush=True)
         else:
-            print(f"Failed to send message to topic {topic}")
+            print(f"Failed to send message to topic {topic}", flush=True)
 
 
 def run():
