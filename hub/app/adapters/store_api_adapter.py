@@ -17,8 +17,25 @@ class StoreApiAdapter(StoreGateway):
         """
         Save the processed road data to the Store API.
         Parameters:
-            processed_agent_data_batch (dict): Processed road data to be saved.
+            processed_agent_data_batch (List[ProcessedAgentData]): Processed road data to be saved.
         Returns:
             bool: True if the data is successfully saved, False otherwise.
         """
-        # Implement it
+        try:
+            # We need to send physical data structure that Store API expects
+            # Store API expects List[ProcessedAgentData]
+            payload = [item.model_dump() for item in processed_agent_data_batch]
+            # Convert datetime to ISO string for JSON serialization
+            for item in payload:
+                item["agent_data"]["timestamp"] = item["agent_data"]["timestamp"].isoformat()
+            
+            response = requests.post(f"{self.api_base_url}/processed_agent_data/", json=payload)
+            if response.status_code == 200 or response.status_code == 201:
+                logging.info(f"Successfully saved {len(processed_agent_data_batch)} items to Store API")
+                return True
+            else:
+                logging.error(f"Failed to save data. Status code: {response.status_code}, Response: {response.text}")
+                return False
+        except Exception as e:
+            logging.error(f"Error connecting to Store API: {e}")
+            return False
