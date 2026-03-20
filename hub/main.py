@@ -65,26 +65,29 @@ def on_connect(client, userdata, flags, rc):
 
 def on_message(client, userdata, msg):
     try:
-        payload: str = msg.payload.decode("utf-8")
-        # Create ProcessedAgentData instance with the received data
-        processed_agent_data = ProcessedAgentData.model_validate_json(
-            payload, strict=True
-        )
-
-        redis_client.lpush(
-            "processed_agent_data", processed_agent_data.model_dump_json()
-        )
-        processed_agent_data_batch: List[ProcessedAgentData] = []
+        payload = msg.payload.decode("utf-8")
+        
+        # Determine if payload is AgentData or ProcessedAgentData
+        try:
+            # Try parsing as ProcessedAgentData first
+            processed_data = ProcessedAgentData.model_validate_json(payload)
+        except Exception:
+            # If it fails, try parsing as AgentData and wrap it (Simulation of Edge Logic)
+            from app.entities.agent_data import AgentData
+            agent_data = AgentData.model_validate_json(payload)
+            processed_data = ProcessedAgentData(road_state="undefined", agent_data=agent_data)
+        
+        redis_client.lpush("processed_agent_data", processed_data.model_dump_json())
         if redis_client.llen("processed_agent_data") >= BATCH_SIZE:
+            processed_agent_data_batch: List[ProcessedAgentData] = []
             for _ in range(BATCH_SIZE):
-                processed_agent_data = ProcessedAgentData.model_validate_json(
-                    redis_client.lpop("processed_agent_data")
-                )
-                processed_agent_data_batch.append(processed_agent_data)
-        store_adapter.save_data(processed_agent_data_batch=processed_agent_data_batch)
+                data_json = redis_client.lpop("processed_agent_data")
+                if data_json:
+                    processed_agent_data_batch.append(ProcessedAgentData.model_validate_json(data_json))
+            store_adapter.save_data(processed_agent_data_batch=processed_agent_data_batch)
         return {"status": "ok"}
     except Exception as e:
-        logging.info(f"Error processing MQTT message: {e}")
+        logging.error(f"Error processing MQTT message: {e}")
 
 
 # Connect
