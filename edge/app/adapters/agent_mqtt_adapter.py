@@ -36,14 +36,18 @@ class AgentMQTTAdapter(AgentGateway):
         try:
             payload: str = msg.payload.decode("utf-8")
             # Create AgentData instance with the received data
-            agent_data = AgentData.model_validate_json(payload, strict=True)
+            agent_data = AgentData.model_validate_json(payload)
             # Process the received data (you can call a use case here if needed)
             processed_data = process_agent_data(agent_data)
+            
+            # Additional debug logging
+            logging.info(f"Processed data: {processed_data.road_state}")
+            
             # Store the agent_data in the database (you can send it to the data processing module)
             if not self.hub_gateway.save_data(processed_data):
                 logging.error("Hub is not available")
         except Exception as e:
-            logging.info(f"Error processing MQTT message: {e}")
+            logging.error(f"Error processing MQTT message: {e}")
 
     def connect(self):
         self.client.on_connect = self.on_connect
