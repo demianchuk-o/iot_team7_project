@@ -93,14 +93,32 @@ services:
       REDIS_PORT: 6379
       MQTT_BROKER_HOST: "mqtt"
       MQTT_BROKER_PORT: 1883
-      MQTT_TOPIC: "processed_data_topic"
+      MQTT_TOPIC: "processed_agent_data_topic"
       BATCH_SIZE: 10
     ports:
       - "9000:8000"
     networks:
       - main_network
 
-  # 7. Data Generator (Agent)
+  # 7. Edge Logic (New Service for Lab 4)
+  edge:
+    build:
+      context: ./edge
+      dockerfile: Dockerfile
+    container_name: edge
+    depends_on:
+      - mqtt
+    environment:
+      MQTT_BROKER_HOST: "mqtt"
+      MQTT_BROKER_PORT: 1883
+      MQTT_TOPIC: "agent_data_topic"
+      HUB_MQTT_BROKER_HOST: "mqtt"
+      HUB_MQTT_BROKER_PORT: 1883
+      HUB_MQTT_TOPIC: "processed_agent_data_topic"
+    networks:
+      - main_network
+
+  # 8. Data Generator (Agent)
   agent:
     build:
       context: ./agent
@@ -111,8 +129,7 @@ services:
     environment:
       MQTT_BROKER_HOST: "mqtt"
       MQTT_BROKER_PORT: 1883
-      MQTT_TOPIC: "processed_data_topic"
-      BATCH_SIZE: 5
+      MQTT_TOPIC: "agent_data_topic"
     networks:
       - main_network
 
