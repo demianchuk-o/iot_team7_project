@@ -22,13 +22,17 @@ class HubMqttAdapter(HubGateway):
         Returns:
             bool: True if the data is successfully saved, False otherwise.
         """
-        msg = processed_data.model_dump_json()
-        result = self.mqtt_client.publish(self.topic, msg)
-        status = result[0]
-        if status == 0:
-            return True
-        else:
-            print(f"Failed to send message to topic {self.topic}")
+        try:
+            msg = processed_data.model_dump_json()
+            result = self.mqtt_client.publish(self.topic, msg)
+            status = result[0]
+            if status == 0:
+                return True
+            else:
+                logging.error(f"Failed to send message to topic {self.topic}, status: {status}")
+                return False
+        except Exception as e:
+            logging.error(f"Error in HubMqttAdapter.save_data: {e}")
             return False
 
     @staticmethod
