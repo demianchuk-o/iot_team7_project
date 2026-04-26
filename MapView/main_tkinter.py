@@ -17,11 +17,15 @@ class MapViewApp:
         self.car_marker = None
         self.path_file = []
         self.path_store = []
+        self.active_parkings = {}
+        self.active_traffic_lights = {}
 
         self.image_path = os.path.join(os.path.dirname(__file__), "images")
         self.pothole_image = Image.open(os.path.join(self.image_path, "pothole.png")).resize((30, 30))
         self.bump_image = Image.open(os.path.join(self.image_path, "bump.png")).resize((30, 30))
         self.car_image = Image.open(os.path.join(self.image_path, "car.png")).resize((40, 40))
+        self.parking_image = Image.open(os.path.join(self.image_path, "parking.png")).resize((30, 30))
+        self.traffic_light_image = Image.open(os.path.join(self.image_path, "traffic_light.png")).resize((30, 30))
 
         self.map_widget = tkintermapview.TkinterMapView(
             self.root, width=1000, height=700, corner_radius=0
@@ -65,8 +69,30 @@ class MapViewApp:
         # Pull new points from Store
         store_points = self.store_datasource.get_new_points()
         if store_points:
-            for lat, lon, road_state in store_points:
-                self.handle_point(lat, lon, road_state, source="store", focus=True)
+            for item in store_points:
+                # Check data type, if none - default "road" (as before)
+                data_type = item.get("data_type", "road")
+
+                lat = item.get("latitude")
+                lon = item.get("longitude")
+
+                if data_type == "road":
+                    road_state = item.get("road_state", "")
+                    self.handle_point(lat, lon, road_state, source="store", focus=True)
+                elif data_type == "parking":
+                    self.set_parking_marker(
+                        lat, lon,
+                        item.get("is_occupied"),
+                        item.get("total_spots"),
+                        item.get("parking_id")
+                    )
+                elif data_type == "traffic_light":
+                    self.set_traffic_light_marker(
+                        lat, lon,
+                        item.get("current_state"),
+                        item.get("car_count"),
+                        item.get("light_id")
+                    )
         
         self.root.after(300, self.update)
 
@@ -110,6 +136,31 @@ class MapViewApp:
         self.map_widget.set_marker(
             lat, lon, icon=ImageTk.PhotoImage(self.bump_image)
         )
+        self.ensure_car_on_top()
+
+    def set_parking_marker(self, lat, lon, is_occupied, total_spots, parking_id):
+        text = "Зайнято" if is_occupied else f"Вільно (з {total_spots})"
+        if parking_id in self.active_parkings:
+            self.active_parkings[parking_id].delete()
+        marker = self.map_widget.set_marker(
+            lat, lon,
+            icon=ImageTk.PhotoImage(self.parking_image),
+            text=text
+        )
+        self.active_parkings[parking_id] = marker
+        self.ensure_car_on_top()
+
+    def set_traffic_light_marker(self, lat, lon, state, car_count, light_id):
+        state_ua = {"red": "Червоний", "yellow": "Жовтий", "green": "Зелений"}.get(state, state)
+        text = f"{state_ua} ({car_count} авто)"
+        if light_id in self.active_traffic_lights:
+            self.active_traffic_lights[light_id].delete()
+        marker = self.map_widget.set_marker(
+            lat, lon,
+            icon=ImageTk.PhotoImage(self.traffic_light_image),
+            text=text
+        )
+        self.active_traffic_lights[light_id] = marker
         self.ensure_car_on_top()
 
     def ensure_car_on_top(self):

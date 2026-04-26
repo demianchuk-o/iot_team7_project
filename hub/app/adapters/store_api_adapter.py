@@ -39,3 +39,25 @@ class StoreApiAdapter(StoreGateway):
         except Exception as e:
             logging.error(f"Error connecting to Store API: {e}")
             return False
+
+    def save_parking_data(self, data_batch: List[dict]):
+        url = f"{self.api_base_url}/parking/"
+        try:
+            response = requests.post(url, json=data_batch)
+            if response.status_code != 200:
+                logging.error(f"Store API Error (Parking): {response.text}")
+            return response.status_code == 200
+        except Exception as e:
+            logging.error(f"Failed to connect to Store API (Parking): {e}")
+            return False
+
+    def save_traffic_light_data(self, data_batch: List[dict]):
+        url = f"{self.api_base_url}/traffic_light/"
+        try:
+            response = requests.post(url, json=data_batch)
+            if response.status_code != 200:
+                logging.error(f"Store API Error (Traffic Light): {response.text}")
+            return response.status_code == 200
+        except Exception as e:
+            logging.error(f"Failed to connect to Store API (Traffic Light): {e}")
+            return False
