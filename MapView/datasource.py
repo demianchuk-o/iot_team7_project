@@ -1,33 +1,7 @@
 import asyncio
 import json
-from datetime import datetime
 import websockets
-from pydantic import BaseModel, field_validator
 from config import STORE_HOST, STORE_PORT
-
-# Pydantic models
-class ProcessedAgentData(BaseModel):
-    road_state: str
-    user_id: int
-    x: float
-    y: float
-    z: float
-    latitude: float
-    longitude: float
-    timestamp: datetime
-
-    @classmethod
-    @field_validator("timestamp", mode="before")
-    def check_timestamp(cls, value):
-        if isinstance(value, datetime):
-            return value
-        try:
-            return datetime.fromisoformat(value)
-        except (TypeError, ValueError):
-            raise ValueError(
-                "Invalid timestamp format. Expected ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)."
-            )
-
 
 class Datasource:
     def __init__(self, user_id: int):
@@ -59,28 +33,20 @@ class Datasource:
 
     def handle_received_data(self, data):
         try:
-            # The data coming from send_json is already a dict (deserialized by send_json)
-            # OR a single JSON string. Let's handle both.
             parsed = json.loads(data)
-            
-            # If it's a single object (which send_data_to_subscribers seems to do)
             if isinstance(parsed, dict):
                 records = [parsed]
             else:
                 records = parsed
-
-            processed_agent_data_list = sorted(
-                [ProcessedAgentData(**item) for item in records],
-                key=lambda v: v.timestamp,
-            )
-            new_points = [
-                (
-                    processed_agent_data.longitude,  # Swapped: latitude is in longitude field in gps.csv
-                    processed_agent_data.latitude,   # Swapped: longitude is in latitude field in gps.csv
-                    processed_agent_data.road_state,
-                )
-                for processed_agent_data in processed_agent_data_list
-            ]
-            self._new_points.extend(new_points)
+            for item in records:
+                # Determining data type
+                data_type = item.get("data_type", "road")
+                # Old logic with swapping coords data for roads
+                if data_type == "road":
+                    old_lat = item.get("latitude")
+                    old_lon = item.get("longitude")
+                    item["latitude"] = old_lon
+                    item["longitude"] = old_lat
+                self._new_points.append(item)
         except Exception as e:
             print(f"DEBUG: Error handling data: {e} | Raw data: {data[:100]}...")
