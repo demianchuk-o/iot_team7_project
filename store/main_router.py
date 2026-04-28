@@ -86,7 +86,7 @@ async def create_parking_batch(data: List[ParkingData]):
             await send_data_to_subscribers(item["user_id"], serializable_item)
         return result
 
-@parking_router.get("/{data_id}", response_model=List[ParkingDataInDB])
+@parking_router.get("/{data_id}", response_model=ParkingDataInDB)
 def read_parking_data(data_id: int):
     with SessionLocal() as db:
         data = crud.get_parking_data(db, data_id)
@@ -148,7 +148,7 @@ def update_traffic_light_data(data_id: int, data: TrafficLightData):
             raise HTTPException(status_code=404, detail="Traffic light data not found")
         return updated_data
 
-@traffic_light_router.delete("/data_id}", response_model=TrafficLightDataInDB)
+@traffic_light_router.delete("/{data_id}", response_model=TrafficLightDataInDB)
 def delete_traffic_light_data(data_id: int):
     with SessionLocal() as db:
         deleted_data = crud.delete_traffic_light_data(db, data_id)

@@ -41,10 +41,7 @@ if __name__ == "__main__":
     try:
         # Connect to the MQTT broker and start listening for messages
         agent_adapter.connect()
-        agent_adapter.start()
-        # Keep the system running indefinitely (you can add other logic as needed)
-        while True:
-            pass
+        agent_adapter.loop_forever()
     except KeyboardInterrupt:
         # Stop the MQTT adapter and exit gracefully if interrupted by the user
         agent_adapter.stop()

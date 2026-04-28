@@ -57,6 +57,9 @@ class AgentMQTTAdapter(AgentGateway):
     def start(self):
         self.client.loop_start()
 
+    def loop_forever(self):
+        self.client.loop_forever()
+
     def stop(self):
         self.client.loop_stop()
 
