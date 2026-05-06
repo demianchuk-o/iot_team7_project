@@ -45,6 +45,9 @@ class AgentMQTTAdapter(AgentGateway):
         self.client.on_message = self.on_message
         self.client.connect(self.broker_host, self.broker_port, 60)
 
+    def start(self):
+        self.loop_forever()
+
     def loop_forever(self):
         self.client.loop_forever()
 

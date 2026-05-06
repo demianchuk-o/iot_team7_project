@@ -91,6 +91,15 @@ def run():
         name="traffic_light",
     ))
 
+    # Network telemetry
+    network_ds = FileDatasource(network_filename="data/network.csv")
+    threads.append(threading.Thread(
+        target=publish_loop,
+        args=(client, "sensors/network/raw", network_ds, 1.5, network_ds.read_network),
+        daemon=True,
+        name="network",
+    ))
+
     for t in threads:
         t.start()
     for t in threads:

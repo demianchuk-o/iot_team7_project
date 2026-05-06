@@ -34,7 +34,6 @@ client = mqtt.Client()
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         logging.info("Connected to MQTT broker")
-        client.subscribe("sensors/+/raw")
         client.subscribe("sensors/+/processed")
     else:
         logging.error(f"Failed to connect to MQTT broker, rc={rc}")
@@ -66,6 +65,11 @@ def on_message(client, userdata, msg):
             logging.warning(f"Unknown topic format: {msg.topic}")
             return
         sensor_type = parts[1]
+        stage = parts[2]
+
+        if stage != "processed":
+            logging.debug(f"Skip non-processed sensor message: {msg.topic}")
+            return
 
         reading = SensorReading.model_validate_json(msg.payload.decode("utf-8"))
 

@@ -10,6 +10,7 @@ from shared.sensor import (
     RoadPayload,
     ParkingPayload,
     TrafficLightPayload,
+    NetworkPayload,
 )
 
 
@@ -29,12 +30,14 @@ class FileDatasource:
         gps_filename: Optional[str] = None,
         parking_filename: Optional[str] = None,
         traffic_light_filename: Optional[str] = None,
+        network_filename: Optional[str] = None,
     ):
         self.filenames = {
             "accel": accelerometer_filename,
             "gps": gps_filename,
             "parking": parking_filename,
             "traffic_light": traffic_light_filename,
+            "network": network_filename,
         }
         self.files = {}
         self.readers = {}
@@ -98,6 +101,27 @@ class FileDatasource:
                 payload=TrafficLightPayload(
                     current_state=row["current_state"],
                     car_count=int(row["car_count"]),
+                ),
+            ))
+        return batch
+
+    def read_network(self) -> List[SensorReading]:
+        batch = []
+        for _ in range(config.BATCH_SIZE):
+            row = self._get_next_row("network")
+            batch.append(SensorReading(
+                sensor_id=row["node_id"],
+                user_id=config.USER_ID,
+                gps=GpsData(
+                    latitude=float(row["latitude"]),
+                    longitude=float(row["longitude"]),
+                ),
+                timestamp=datetime.now(),
+                payload=NetworkPayload(
+                    latency_ms=float(row["latency_ms"]),
+                    packet_loss_pct=float(row["packet_loss_pct"]),
+                    throughput_kbps=float(row["throughput_kbps"]),
+                    rssi_dbm=float(row["rssi_dbm"]),
                 ),
             ))
         return batch

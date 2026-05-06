@@ -35,8 +35,19 @@ class TrafficLightPayload(BaseModel):
     current_state: str  # red / yellow / green
     car_count: int
 
+
+class NetworkPayload(BaseModel):
+    sensor_type: Literal["network"] = "network"
+    latency_ms: float
+    packet_loss_pct: float
+    throughput_kbps: float
+    rssi_dbm: float
+    anomaly_score: float | None = None
+    network_state: str | None = None
+
+
 SensorPayload = Annotated[
-    Union[RoadPayload, ParkingPayload, TrafficLightPayload],
+    Union[RoadPayload, ParkingPayload, TrafficLightPayload, NetworkPayload],
     Field(discriminator="sensor_type"),
 ]
 
