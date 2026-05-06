@@ -1,0 +1,554 @@
+{
+  "uid": "roadvision-lab3",
+  "title": "RoadVision Lab 3 - Sensor and Network Monitoring",
+  "tags": ["iot", "lab3", "roadvision"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "sensor_type",
+        "type": "query",
+        "label": "Sensor type",
+        "datasource": {
+          "type": "postgres",
+          "uid": "roadvision-postgres"
+        },
+        "query": "SELECT DISTINCT sensor_type FROM sensor_readings ORDER BY sensor_type",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "network_node",
+        "type": "query",
+        "label": "Network node",
+        "datasource": {
+          "type": "postgres",
+          "uid": "roadvision-postgres"
+        },
+        "query": "SELECT DISTINCT sensor_id FROM sensor_readings WHERE sensor_type = 'network' ORDER BY sensor_id",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Readings in selected time range",
+      "datasource": {
+        "type": "postgres",
+        "uid": "roadvision-postgres"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS readings FROM sensor_readings WHERE $__timeFilter(\"timestamp\") AND ('${sensor_type:csv}' IN ('', '$__all') OR sensor_type = ANY(string_to_array('${sensor_type:csv}', ',')))"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "piechart",
+      "title": "Sensor data share",
+      "datasource": {
+        "type": "postgres",
+        "uid": "roadvision-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT sensor_type AS metric, COUNT(*) AS value FROM sensor_readings WHERE $__timeFilter(\"timestamp\") AND ('${sensor_type:csv}' IN ('', '$__all') OR sensor_type = ANY(string_to_array('${sensor_type:csv}', ','))) GROUP BY sensor_type ORDER BY sensor_type"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "pieType": "donut",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Latest readings by object",
+      "datasource": {
+        "type": "postgres",
+        "uid": "roadvision-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT DISTINCT ON (sensor_type, sensor_id) sensor_type, sensor_id, \"timestamp\", latitude, longitude, payload FROM sensor_readings WHERE ('${sensor_type:csv}' IN ('', '$__all') OR sensor_type = ANY(string_to_array('${sensor_type:csv}', ','))) ORDER BY sensor_type, sensor_id, \"timestamp\" DESC"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Road accelerometer Z axis",
+      "datasource": {
+        "type": "postgres",
+        "uid": "roadvision-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), AVG((payload->'accelerometer'->>'z')::double precision) AS \"avg z\" FROM sensor_readings WHERE $__timeFilter(\"timestamp\") AND sensor_type = 'road' GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "accMS2",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Traffic light load",
+      "datasource": {
+        "type": "postgres",
+        "uid": "roadvision-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), AVG((payload->>'car_count')::double precision) AS \"cars\" FROM sensor_readings WHERE $__timeFilter(\"timestamp\") AND sensor_type = 'traffic_light' GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "gauge",
+      "title": "Parking occupancy",
+      "datasource": {
+        "type": "postgres",
+        "uid": "roadvision-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest AS (SELECT DISTINCT ON (sensor_id) sensor_id, (payload->>'is_occupied')::boolean AS is_occupied FROM sensor_readings WHERE sensor_type = 'parking' ORDER BY sensor_id, \"timestamp\" DESC) SELECT 100.0 * SUM(CASE WHEN is_occupied THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0) AS occupancy_pct FROM latest"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Network latency and packet loss",
+      "datasource": {
+        "type": "postgres",
+        "uid": "roadvision-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 16
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), AVG((payload->>'latency_ms')::double precision) AS \"latency ms\", AVG((payload->>'packet_loss_pct')::double precision) AS \"packet loss pct\" FROM sensor_readings WHERE $__timeFilter(\"timestamp\") AND sensor_type = 'network' AND ('${network_node:csv}' IN ('', '$__all') OR sensor_id = ANY(string_to_array('${network_node:csv}', ','))) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Network throughput and RSSI",
+      "datasource": {
+        "type": "postgres",
+        "uid": "roadvision-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), AVG((payload->>'throughput_kbps')::double precision) AS \"throughput kbps\", AVG((payload->>'rssi_dbm')::double precision) AS \"rssi dbm\" FROM sensor_readings WHERE $__timeFilter(\"timestamp\") AND sensor_type = 'network' AND ('${network_node:csv}' IN ('', '$__all') OR sensor_id = ANY(string_to_array('${network_node:csv}', ','))) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Network anomaly score",
+      "datasource": {
+        "type": "postgres",
+        "uid": "roadvision-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), AVG((payload->>'anomaly_score')::double precision) AS \"anomaly score\" FROM sensor_readings WHERE $__timeFilter(\"timestamp\") AND sensor_type = 'network' AND ('${network_node:csv}' IN ('', '$__all') OR sensor_id = ANY(string_to_array('${network_node:csv}', ','))) AND payload->>'anomaly_score' IS NOT NULL GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.35
+              },
+              {
+                "color": "red",
+                "value": 0.65
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Network state by node",
+      "datasource": {
+        "type": "postgres",
+        "uid": "roadvision-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT DISTINCT ON (sensor_id) sensor_id AS node, \"timestamp\", (payload->>'latency_ms')::double precision AS latency_ms, (payload->>'packet_loss_pct')::double precision AS packet_loss_pct, (payload->>'throughput_kbps')::double precision AS throughput_kbps, (payload->>'rssi_dbm')::double precision AS rssi_dbm, (payload->>'anomaly_score')::double precision AS anomaly_score, payload->>'network_state' AS network_state FROM sensor_readings WHERE sensor_type = 'network' AND ('${network_node:csv}' IN ('', '$__all') OR sensor_id = ANY(string_to_array('${network_node:csv}', ','))) AND payload->>'network_state' IS NOT NULL ORDER BY sensor_id, \"timestamp\" DESC"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "anomaly_score"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.35
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.65
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

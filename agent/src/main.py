@@ -1,26 +1,27 @@
-from paho.mqtt import client as mqtt_client
+import logging
 import threading
 import time
-from schema.aggregated_data_schema import AggregatedDataSchema
-from schema.parking_schema import ParkingSchema
-from schema.traffic_light_schema import TrafficLightSchema
-from file_datasource import FileDatasource
+
+from paho.mqtt import client as mqtt_client
+
 import config
+from file_datasource import FileDatasource
 
-road_schema = AggregatedDataSchema()
-parking_schema = ParkingSchema()
-traffic_light_schema = TrafficLightSchema()
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] [%(levelname)s] [agent] %(message)s",
+)
+log = logging.getLogger(__name__)
 
-def connect_mqtt(broker, port):
-    """Create MQTT client"""
-    print(f"CONNECT TO {broker}:{port}")
+
+def connect_mqtt(broker: str, port: int) -> mqtt_client.Client:
+    log.info(f"Connecting to MQTT {broker}:{port}")
 
     def on_connect(client, userdata, flags, rc):
         if rc == 0:
-            print(f"Connected to MQTT Broker ({broker}:{port})!", flush=True)
+            log.info(f"Connected to MQTT Broker ({broker}:{port})")
         else:
-            print(f"Failed to connect {broker}:{port}, return code %d\n", rc, flush=True)
-            exit(rc)  # Stop execution
+            log.error(f"MQTT connection failed: rc={rc}")
 
     client = mqtt_client.Client()
     client.on_connect = on_connect
@@ -29,53 +30,80 @@ def connect_mqtt(broker, port):
     return client
 
 
-def publish(client, topic, datasource, delay, schema, read_method):
+def publish_loop(client, topic: str, datasource: FileDatasource, delay: float, read_method):
+    """Періодично читає батч SensorReading-ів і публікує в MQTT-топік."""
     datasource.startReading()
     try:
         while True:
             time.sleep(delay)
-            # read_method: read, read_parking or read_traffic_light
-            data_batch = read_method()
-            for data in data_batch:
-                msg = schema.dumps(data)
+            try:
+                batch = read_method()
+            except Exception as e:
+                log.error(f"[{topic}] read error: {e}")
+                continue
+            for reading in batch:
+                msg = reading.model_dump_json()
                 result = client.publish(topic, msg)
                 if result[0] == 0:
-                    print(f"[{topic}] Sent message", flush=True)
+                    log.info(f"[{topic}] sent {reading.payload.sensor_type}/{reading.sensor_id}")
                 else:
-                    print(f"[{topic}] Failed to send", flush=True)
+                    log.error(f"[{topic}] publish FAILED status={result[0]}")
     except Exception as e:
-        print(f"Error in {topic}: {e}")
+        log.error(f"[{topic}] fatal: {e}")
     finally:
         datasource.stopReading()
 
 
 def run():
-    # Prepare mqtt client
     client = connect_mqtt(config.MQTT_BROKER_HOST, config.MQTT_BROKER_PORT)
-    # Prepare datasource
-    # Roads
-    road_ds = FileDatasource(accelerometer_filename="data/accelerometer.csv", gps_filename="data/gps.csv")
-    road_thread = threading.Thread(target=publish, args=(
-        client, config.MQTT_TOPIC, road_ds, config.DELAY, road_schema, road_ds.read
+
+    # Кожен сенсор живе в окремому потоці і шле в свій топік.
+    # Конвенція: sensors/<type>/raw — необроблені дані від датчика.
+    threads = []
+
+    # Road
+    road_ds = FileDatasource(
+        accelerometer_filename="data/accelerometer.csv",
+        gps_filename="data/gps.csv",
+    )
+    threads.append(threading.Thread(
+        target=publish_loop,
+        args=(client, "sensors/road/raw", road_ds, config.DELAY, road_ds.read),
+        daemon=True,
+        name="road",
     ))
-    # Parkings
+
+    # Parking
     parking_ds = FileDatasource(parking_filename="data/parking.csv")
-    parking_thread = threading.Thread(target=publish, args=(
-        client, "agent/parking/data", parking_ds, 2.0, parking_schema, parking_ds.read_parking
-    ))
-    # Traffic Lights
-    traffic_ds = FileDatasource(traffic_light_filename="data/traffic_lights.csv")
-    traffic_thread = threading.Thread(target=publish, args=(
-        client, "agent/traffic_light/data", traffic_ds, 1.0, traffic_light_schema, traffic_ds.read_traffic_light
+    threads.append(threading.Thread(
+        target=publish_loop,
+        args=(client, "sensors/parking/raw", parking_ds, 2.0, parking_ds.read_parking),
+        daemon=True,
+        name="parking",
     ))
 
-    road_thread.start()
-    parking_thread.start()
-    traffic_thread.start()
+    # Traffic light
+    tl_ds = FileDatasource(traffic_light_filename="data/traffic_lights.csv")
+    threads.append(threading.Thread(
+        target=publish_loop,
+        args=(client, "sensors/traffic_light/raw", tl_ds, 1.0, tl_ds.read_traffic_light),
+        daemon=True,
+        name="traffic_light",
+    ))
 
-    road_thread.join()
-    parking_thread.join()
-    traffic_thread.join()
+    # Network telemetry
+    network_ds = FileDatasource(network_filename="data/network.csv")
+    threads.append(threading.Thread(
+        target=publish_loop,
+        args=(client, "sensors/network/raw", network_ds, 1.5, network_ds.read_network),
+        daemon=True,
+        name="network",
+    ))
+
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
 if __name__ == "__main__":

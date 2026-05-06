@@ -1,4 +1,3 @@
-import json
 import logging
 from typing import List
 
@@ -7,125 +6,91 @@ from redis import Redis
 import paho.mqtt.client as mqtt
 
 from app.adapters.store_api_adapter import StoreApiAdapter
-from app.entities.processed_agent_data import ProcessedAgentData
-from app.entities.parking_data import ParkingData
-from app.entities.traffic_light_data import TrafficLightData
 from config import (
     STORE_API_BASE_URL,
     REDIS_HOST,
     REDIS_PORT,
     BATCH_SIZE,
-    MQTT_TOPIC,
     MQTT_BROKER_HOST,
     MQTT_BROKER_PORT,
 )
+from shared.sensor import SensorReading
 
-# Configure logging settings
 logging.basicConfig(
-    level=logging.INFO,  # Set the log level to INFO (you can use logging.DEBUG for more detailed logs)
+    level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] [%(module)s] %(message)s",
     handlers=[
-        logging.StreamHandler(),  # Output log messages to the console
-        logging.FileHandler("app.log"),  # Save log messages to a file
+        logging.StreamHandler(),
+        logging.FileHandler("app.log"),
     ],
 )
-# Create an instance of the Redis using the configuration
+
 redis_client = Redis(host=REDIS_HOST, port=REDIS_PORT)
-# Create an instance of the StoreApiAdapter using the configuration
 store_adapter = StoreApiAdapter(api_base_url=STORE_API_BASE_URL)
-# Create an instance of the AgentMQTTAdapter using the configuration
-
-# FastAPI
-app = FastAPI()
-
-
-@app.post("/processed_agent_data/")
-async def save_processed_agent_data(processed_agent_data: ProcessedAgentData):
-    redis_client.lpush("processed_agent_data", processed_agent_data.model_dump_json())
-    if redis_client.llen("processed_agent_data") >= BATCH_SIZE:
-        processed_agent_data_batch: List[ProcessedAgentData] = []
-        for _ in range(BATCH_SIZE):
-            processed_agent_data = ProcessedAgentData.model_validate_json(
-                redis_client.lpop("processed_agent_data")
-            )
-            processed_agent_data_batch.append(processed_agent_data)
-        print(processed_agent_data_batch)
-        store_adapter.save_data(processed_agent_data_batch=processed_agent_data_batch)
-    return {"status": "ok"}
-
-
-# MQTT
+app = FastAPI(title="RoadVision Hub")
 client = mqtt.Client()
 
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         logging.info("Connected to MQTT broker")
-        client.subscribe(MQTT_TOPIC)
-        client.subscribe("agent/parking/data")
-        client.subscribe("agent/traffic_light/data")
+        client.subscribe("sensors/+/processed")
     else:
-        logging.info(f"Failed to connect to MQTT broker with code: {rc}")
+        logging.error(f"Failed to connect to MQTT broker, rc={rc}")
+
+
+def _flush_if_ready(queue: str) -> None:
+    """Якщо черга набрала BATCH_SIZE — забрати батч і відправити в Store."""
+    if redis_client.llen(queue) < BATCH_SIZE:
+        return
+
+    batch: List[SensorReading] = []
+    for _ in range(BATCH_SIZE):
+        data_json = redis_client.rpop(queue)
+        if data_json:
+            try:
+                batch.append(SensorReading.model_validate_json(data_json))
+            except Exception as e:
+                logging.error(f"Failed to parse from {queue}: {e}")
+
+    if batch:
+        store_adapter.save_sensor_batch(batch)
 
 
 def on_message(client, userdata, msg):
+    """Універсальний обробник — формат топіка: sensors/{type}/{stage}."""
     try:
-        payload = msg.payload.decode("utf-8")
-        topic = msg.topic
+        parts = msg.topic.split("/")
+        if len(parts) != 3 or parts[0] != "sensors":
+            logging.warning(f"Unknown topic format: {msg.topic}")
+            return
+        sensor_type = parts[1]
+        stage = parts[2]
 
-        # Road data
-        if topic == MQTT_TOPIC:
-            # Parse payload as ProcessedAgentData (sent by Edge)
-            processed_data = ProcessedAgentData.model_validate_json(payload)
-            logging.info(f"Received processed data from Edge: {processed_data.road_state}")
-            redis_client.lpush("processed_agent_data", processed_data.model_dump_json())
-            if redis_client.llen("processed_agent_data") >= BATCH_SIZE:
-                processed_agent_data_batch: List[ProcessedAgentData] = []
-                for _ in range(BATCH_SIZE):
-                    data_json = redis_client.lpop("processed_agent_data")
-                    if data_json:
-                        processed_agent_data_batch.append(ProcessedAgentData.model_validate_json(data_json))
-                if processed_agent_data_batch:
-                    logging.info(f"Saving batch of {len(processed_agent_data_batch)} items to Store API")
-                    store_adapter.save_data(processed_agent_data_batch=processed_agent_data_batch)
-            return {"status": "ok"}
+        if stage != "processed":
+            logging.debug(f"Skip non-processed sensor message: {msg.topic}")
+            return
 
-        # Parking data
-        elif topic == "agent/parking/data":
-            valid_data = ParkingData.model_validate_json(payload)
-            redis_client.lpush("parking_queue", valid_data.model_dump_json())
-            if redis_client.llen("parking_queue") >= BATCH_SIZE:
-                batch = []
-                for _ in range(BATCH_SIZE):
-                    data_json = redis_client.lpop("parking_queue")
-                    if data_json:
-                        batch.append(json.loads(data_json))
-                if batch:
-                    store_adapter.save_parking_data(data_batch=batch)
-                    logging.info(f"Hub sent batch of {len(batch)} parking items.")
+        reading = SensorReading.model_validate_json(msg.payload.decode("utf-8"))
 
-        # Traffic light data
-        elif topic == "agent/traffic_light/data":
-            valid_data = TrafficLightData.model_validate_json(payload)
-            redis_client.lpush("traffic_light_queue", valid_data.model_dump_json())
-            if redis_client.llen("traffic_light_queue") >= BATCH_SIZE:
-                batch = []
-                for _ in range(BATCH_SIZE):
-                    data_json = redis_client.lpop("traffic_light_queue")
-                    if data_json:
-                        batch.append(json.loads(data_json))
-                if batch:
-                    store_adapter.save_traffic_light_data(data_batch=batch)
-                    logging.info(f"Hub sent batch of {len(batch)} traffic light items.")
+        if reading.payload.sensor_type != sensor_type:
+            logging.error(
+                f"Topic/payload mismatch: topic={sensor_type}, "
+                f"payload={reading.payload.sensor_type}"
+            )
+            return
+
+        queue = f"sensor_queue:{sensor_type}"
+        redis_client.lpush(queue, reading.model_dump_json())
+        redis_client.ltrim(queue, 0, 9999)
+
+        _flush_if_ready(queue)
 
     except Exception as e:
-        logging.error(f"Error processing MQTT message from {msg.topic}: {e}")
+        logging.error(f"Error in on_message ({msg.topic}): {e}")
 
 
-# Connect
 client.on_connect = on_connect
 client.on_message = on_message
 client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT)
-
-# Start
 client.loop_start()

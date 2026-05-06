@@ -1,4 +1,3 @@
-version: "3.9"
 name: "road_vision_full_stack"
 
 services:
@@ -47,6 +46,26 @@ services:
     networks:
       - main_network
 
+  # 3a. Monitoring UI
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: grafana
+    restart: always
+    depends_on:
+      - postgres_db
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - main_network
+
   # 4. Cache / Buffer
   redis:
     image: redis:latest
@@ -59,8 +78,8 @@ services:
   # 5. Core API Service
   store:
     build:
-      context: ./store
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: store/Dockerfile
     container_name: store
     depends_on:
       - postgres_db
@@ -79,8 +98,8 @@ services:
   # 6. Aggregator & Logic Service
   hub:
     build:
-      context: ./hub
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: hub/Dockerfile
     container_name: hub
     depends_on:
       - mqtt
@@ -93,43 +112,39 @@ services:
       REDIS_PORT: 6379
       MQTT_BROKER_HOST: "mqtt"
       MQTT_BROKER_PORT: 1883
-      MQTT_TOPIC: "processed_agent_data_topic"
       BATCH_SIZE: 10
     ports:
       - "9000:8000"
     networks:
       - main_network
 
-  # 7. Edge Logic (New Service for Lab 4)
+  # 7. Edge Logic
   edge:
     build:
-      context: ./edge
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: edge/Dockerfile
     container_name: edge
     depends_on:
       - mqtt
     environment:
       MQTT_BROKER_HOST: "mqtt"
       MQTT_BROKER_PORT: 1883
-      MQTT_TOPIC: "agent_data_topic"
       HUB_MQTT_BROKER_HOST: "mqtt"
       HUB_MQTT_BROKER_PORT: 1883
-      HUB_MQTT_TOPIC: "processed_agent_data_topic"
     networks:
       - main_network
 
   # 8. Data Generator (Agent)
   agent:
     build:
-      context: ./agent
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: agent/Dockerfile
     container_name: agent
     depends_on:
       - mqtt
     environment:
       MQTT_BROKER_HOST: "mqtt"
       MQTT_BROKER_PORT: 1883
-      MQTT_TOPIC: "agent_data_topic"
     networks:
       - main_network
 
@@ -140,3 +155,4 @@ networks:
 volumes:
   postgres_data:
   pgadmin-data:
+  grafana_data:

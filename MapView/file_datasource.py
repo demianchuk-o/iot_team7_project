@@ -1,58 +1,102 @@
+import json
+import os
 from csv import DictReader
 from typing import List, Tuple
 
-class FileDatasource:
-    def __init__(self, csv_file: str):
-        self.csv_file = csv_file
-        self.index = 0
-        self._data = self._load_data()
 
-    def _load_data(self) -> List[Tuple[float, float, str]]:
+class FileDatasource:
+    """
+    Симулює рух машини: координати беруться з реального маршруту,
+    стан дороги — з accelerometer CSV.
+    """
+
+    def __init__(self, csv_file: str, route_file: str | None = None):
+        self.csv_file = csv_file
+        self.route_file = route_file or os.path.join(
+            os.path.dirname(csv_file), "route.json"
+        )
+        self.index = 0
+        self._route: List[Tuple[float, float]] = self._load_route()
+        self._data: List[Tuple[float, float, str]] = self._build_path()
+
+    def _load_route(self) -> List[Tuple[float, float]]:
         """
-        Loads data from local data.csv using standard csv module.
-        Calculates fake GPS coordinates using base offset logic.
+        Завантажує waypoints з route.json (GeoJSON LineString).
+        Повертає список (lat, lon).
         """
-        processed_points = []
+        if not os.path.exists(self.route_file):
+            print(f"DEBUG: route.json not found at {self.route_file}, fallback to single point")
+            return [(50.4501, 30.5234)]
+
+        with open(self.route_file, encoding="utf-8") as f:
+            geo = json.load(f)
+
+        if isinstance(geo, dict) and geo.get("type") == "LineString":
+            coords = geo["coordinates"]
+            return [(lat, lon) for lon, lat in coords]
+        elif isinstance(geo, list):
+            return [(lat, lon) for lat, lon in geo]
+        else:
+            print(f"DEBUG: unsupported route format")
+            return [(50.4501, 30.5234)]
+
+    def _build_path(self) -> List[Tuple[float, float, float]]:
+        """
+        Читає accelerometer CSV.
+        Для кожного запису обчислює:
+         - позицію вздовж маршруту через лінійну інтерполяцію
+         - сире значення z
+        """
         try:
-            with open(self.csv_file, mode='r', newline='') as f:
-                reader = DictReader(f)
-                # Base Kyiv coordinates for the fake GPS offset
-                base_lat, base_lon = 50.4501, 30.5234
-                
-                for row in reader:
-                    try:
-                        x = float(row.get('X', 0))
-                        y = float(row.get('Y', 0))
-                        z = float(row.get('Z', 0))
-                        
-                        # Perform classification logic (same as Edge)
-                        if 14000 <= z <= 18000:
-                            state = "normal"
-                        elif (12000 <= z < 14000) or (18000 < z <= 20000):
-                            state = "small pits"
-                        else:
-                            state = "large pits"
-                        
-                        # Purely empirical offset logic for demonstration
-                        lat = base_lat + (x / 1000000)
-                        lon = base_lon + (y / 1000000)
-                        
-                        processed_points.append((lat, lon, state))
-                    except (ValueError, TypeError):
-                        continue
-            
-            print(f"DEBUG: FileDatasource loaded {len(processed_points)} points")
-            return processed_points
+            with open(self.csv_file, mode="r", newline="", encoding="utf-8") as f:
+                rows = list(DictReader(f))
         except Exception as e:
             print(f"DEBUG: FileDatasource failed to load: {e}")
             return []
 
-    def get_new_points(self, batch_size: int = 1) -> List[Tuple[float, float, str]]:
-        """Returns a small batch of points to prevent UI flooding"""
-        if self.index >= len(self._data):
+        n_rows = len(rows)
+        n_route = len(self._route)
+
+        if n_rows == 0 or n_route < 2:
             return []
-            
-        end_idx = min(self.index + batch_size, len(self._data))
-        points = self._data[self.index:end_idx]
-        self.index = end_idx
-        return points
+
+        result = []
+
+        for i, row in enumerate(rows):
+            try:
+                z = float(row.get("Z", 0))
+            except (ValueError, TypeError):
+                continue
+
+            progress = i / (n_rows - 1) if n_rows > 1 else 0.0
+            seg_float = progress * (n_route - 1)
+            seg_idx = min(int(seg_float), n_route - 2)
+            t = seg_float - seg_idx
+
+            lat1, lon1 = self._route[seg_idx]
+            lat2, lon2 = self._route[seg_idx + 1]
+
+            lat = lat1 + (lat2 - lat1) * t
+            lon = lon1 + (lon2 - lon1) * t
+
+            result.append((lat, lon, z))
+
+        print(
+            f"DEBUG: FileDatasource built {len(result)} points "
+            f"along {n_route}-waypoint route"
+        )
+
+        return result
+
+    def get_new_points(self, batch_size: int = 1) -> List[Tuple[float, float, float]]:
+        """Циклічне читання — машина їздить безкінечно по маршруту."""
+        if not self._data:
+            return []
+    
+        result = []
+    
+        for _ in range(batch_size):
+            result.append(self._data[self.index])
+            self.index = (self.index + 1) % len(self._data)
+    
+        return result

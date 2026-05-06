@@ -1,99 +1,150 @@
 from csv import DictReader
 from datetime import datetime
 from typing import List, Optional
-from domain.accelerometer import Accelerometer
-from domain.gps import Gps
-from domain.aggregated_data import AggregatedData
-from domain.parking import Parking
-from domain.traffic_light import TrafficLight
+
 import config
+from shared.sensor import (
+    SensorReading,
+    GpsData,
+    AccelerometerData,
+    RoadPayload,
+    ParkingPayload,
+    TrafficLightPayload,
+    NetworkPayload,
+)
+
+
+def _parse_bool(s) -> bool:
+    return str(s).strip().lower() in ("1", "true", "yes", "y", "t")
+
 
 class FileDatasource:
+    """
+    Читає sensor-дані з CSV файлів і повертає їх як SensorReading об'єкти.
+    Один інстанс може обслуговувати декілька джерел (road, parking, traffic_light).
+    """
+
     def __init__(
         self,
-            accelerometer_filename: Optional[str] = None,
-            gps_filename: Optional[str] = None,
+        accelerometer_filename: Optional[str] = None,
+        gps_filename: Optional[str] = None,
         parking_filename: Optional[str] = None,
         traffic_light_filename: Optional[str] = None,
-    ) -> None:
+        network_filename: Optional[str] = None,
+    ):
         self.filenames = {
-            'accel': accelerometer_filename,
-            'gps': gps_filename,
-            'parking': parking_filename,
-            'traffic_light': traffic_light_filename
+            "accel": accelerometer_filename,
+            "gps": gps_filename,
+            "parking": parking_filename,
+            "traffic_light": traffic_light_filename,
+            "network": network_filename,
         }
         self.files = {}
         self.readers = {}
 
-    def read(self) -> List[AggregatedData]:
-        """Метод повертає дані отримані з датчиків батчами"""
-        data_batch: List[AggregatedData] = []
-        batch_size = config.BATCH_SIZE
-        for _ in range(batch_size):
-            acc_row = self._get_next_row('accel')
-            gps_row = self._get_next_row('gps')
-            data_batch.append(AggregatedData(
-                Accelerometer(int(acc_row['x']), int(acc_row['y']), int(acc_row['z'])),
-                Gps(float(gps_row['longitude']), float(gps_row['latitude'])),
-                datetime.now(),
-                config.USER_ID,
+    def read(self) -> List[SensorReading]:
+        """Road readings: спарені accelerometer + GPS на кожен tick."""
+        batch = []
+        for _ in range(config.BATCH_SIZE):
+            acc_row = self._get_next_row("accel")
+            gps_row = self._get_next_row("gps")
+            batch.append(SensorReading(
+                sensor_id=f"car_{config.USER_ID}",
+                user_id=config.USER_ID,
+                gps=GpsData(
+                    latitude=float(gps_row["latitude"]),
+                    longitude=float(gps_row["longitude"]),
+                ),
+                timestamp=datetime.now(),
+                payload=RoadPayload(
+                    accelerometer=AccelerometerData(
+                        x=float(acc_row["x"]),
+                        y=float(acc_row["y"]),
+                        z=float(acc_row["z"]),
+                    ),
+                    road_state=None,  # заповнить Edge після класифікації
+                ),
             ))
-            
-        return data_batch
+        return batch
 
-    def read_parking(self) -> List[dict]:
-        """Метод для читання даних про парковку"""
-        data_batch = []
-        batch_size = config.BATCH_SIZE
-        for _ in range(batch_size):
-            row = self._get_next_row('parking')
-            data_batch.append(Parking(
-                config.USER_ID,
-                row['parking_id'],
-                bool(int(row['is_occupied'])),
-                int(row['total_spots']),
-                Gps(longitude=float(row['longitude']), latitude=float(row['latitude'])),
-                datetime.now(),
+    def read_parking(self) -> List[SensorReading]:
+        batch = []
+        for _ in range(config.BATCH_SIZE):
+            row = self._get_next_row("parking")
+            batch.append(SensorReading(
+                sensor_id=row["parking_id"],
+                user_id=config.USER_ID,
+                gps=GpsData(
+                    latitude=float(row["latitude"]),
+                    longitude=float(row["longitude"]),
+                ),
+                timestamp=datetime.now(),
+                payload=ParkingPayload(
+                    is_occupied=_parse_bool(row["is_occupied"]),
+                    total_spots=int(row["total_spots"]),
+                ),
             ))
-        return data_batch
+        return batch
 
-    def read_traffic_light(self) -> List[dict]:
-        """Метод для читання даних про світлофори"""
-        data_batch = []
-        batch_size = config.BATCH_SIZE
-        for _ in range(batch_size):
-            row = self._get_next_row('traffic_light')
-            data_batch.append(TrafficLight(
-                config.USER_ID,
-                row['light_id'],
-                row['current_state'],
-                int(row['car_count']),
-                Gps(longitude=float(row['longitude']), latitude=float(row['latitude'])),
-                datetime.now(),
+    def read_traffic_light(self) -> List[SensorReading]:
+        batch = []
+        for _ in range(config.BATCH_SIZE):
+            row = self._get_next_row("traffic_light")
+            batch.append(SensorReading(
+                sensor_id=row["light_id"],
+                user_id=config.USER_ID,
+                gps=GpsData(
+                    latitude=float(row["latitude"]),
+                    longitude=float(row["longitude"]),
+                ),
+                timestamp=datetime.now(),
+                payload=TrafficLightPayload(
+                    current_state=row["current_state"],
+                    car_count=int(row["car_count"]),
+                ),
             ))
-        return data_batch
+        return batch
+
+    def read_network(self) -> List[SensorReading]:
+        batch = []
+        for _ in range(config.BATCH_SIZE):
+            row = self._get_next_row("network")
+            batch.append(SensorReading(
+                sensor_id=row["node_id"],
+                user_id=config.USER_ID,
+                gps=GpsData(
+                    latitude=float(row["latitude"]),
+                    longitude=float(row["longitude"]),
+                ),
+                timestamp=datetime.now(),
+                payload=NetworkPayload(
+                    latency_ms=float(row["latency_ms"]),
+                    packet_loss_pct=float(row["packet_loss_pct"]),
+                    throughput_kbps=float(row["throughput_kbps"]),
+                    rssi_dbm=float(row["rssi_dbm"]),
+                ),
+            ))
+        return batch
 
     def startReading(self, *args, **kwargs):
-        """Метод повинен викликатись перед початком читання даних"""
-        for key, filename in self.filenames.items():
-            if filename:
-                f = open(filename, 'r')
+        for key, fname in self.filenames.items():
+            if fname:
+                f = open(fname, "r")
                 self.files[key] = f
                 self.readers[key] = DictReader(f)
 
     def stopReading(self, *args, **kwargs):
-        """Метод повинен викликатись для закінчення читання даних"""
         for f in self.files.values():
             if f:
                 f.close()
         self.files = {}
         self.readers = {}
 
-    def _get_next_row(self, reader_key):
-        """Допоміжний метод для отримання наступного рядка з автоматичним скиданням файлу"""
+    def _get_next_row(self, key: str):
+        """Auto-rewind при досягненні EOF — циклічне читання."""
         try:
-            return next(self.readers[reader_key])
+            return next(self.readers[key])
         except (StopIteration, TypeError, KeyError):
-            self.files[reader_key].seek(0)
-            self.readers[reader_key] = DictReader(self.files[reader_key])
-            return next(self.readers[reader_key])
+            self.files[key].seek(0)
+            self.readers[key] = DictReader(self.files[key])
+            return next(self.readers[key])

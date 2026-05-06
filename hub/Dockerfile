@@ -1,11 +1,12 @@
-# Use the official Python image as the base image
-FROM python:3.9-slim
-# Set the working directory inside the container
+FROM python:3.11-slim
+
 WORKDIR /app
-# Copy the requirements.txt file and install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-# Copy the entire application into the container
-COPY . .
-# Run the main.py script inside the container when it starts
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0"]
+
+COPY shared/ /app/shared/
+
+COPY hub/requirements.txt /app/
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+COPY hub/ /app/
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

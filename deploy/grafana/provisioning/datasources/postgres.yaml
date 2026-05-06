@@ -1,0 +1,17 @@
+apiVersion: 1
+
+datasources:
+  - name: RoadVision PostgreSQL
+    uid: roadvision-postgres
+    type: postgres
+    access: proxy
+    url: postgres_db:5432
+    user: user
+    editable: true
+    secureJsonData:
+      password: password
+    jsonData:
+      database: road_state
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false

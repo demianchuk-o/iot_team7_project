@@ -1,18 +1,21 @@
-# Use the official Python image as the base image
 FROM python:3.11-slim
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Install system dependencies for build
-RUN apt-get update && apt-get install -y \
+# Install build deps for psycopg2
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
-# Copy the requirements.txt file and install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-# Copy the entire application into the container
-COPY . .
-# Run the main.py script inside the container when it starts
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0"]
+
+# Спочатку shared/, бо рідко змінюється — кращий cache
+COPY shared/ /app/shared/
+
+# Залежності
+COPY store/requirements.txt /app/
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Сам сервіс
+COPY store/ /app/
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
