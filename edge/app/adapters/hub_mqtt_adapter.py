@@ -1,51 +1,41 @@
 import logging
 
-import requests as requests
 from paho.mqtt import client as mqtt_client
 
-from app.entities.processed_agent_data import ProcessedAgentData
 from app.interfaces.hub_gateway import HubGateway
+from shared.sensor import SensorReading
 
 
 class HubMqttAdapter(HubGateway):
-    def __init__(self, broker, port, topic):
+    """Публікація обробленого SensorReading в Hub через MQTT."""
+
+    def __init__(self, broker: str, port: int):
         self.broker = broker
         self.port = port
-        self.topic = topic
         self.mqtt_client = self._connect_mqtt(broker, port)
 
-    def save_data(self, processed_data: ProcessedAgentData):
-        """
-        Save the processed road data to the Hub.
-        Parameters:
-            processed_data (ProcessedAgentData): Processed road data to be saved.
-        Returns:
-            bool: True if the data is successfully saved, False otherwise.
-        """
+    def save_data(self, reading: SensorReading, topic: str) -> bool:
+        """Публікація reading в указаний топік (тип визначає Edge)."""
         try:
-            msg = processed_data.model_dump_json()
-            result = self.mqtt_client.publish(self.topic, msg)
-            status = result[0]
-            if status == 0:
+            msg = reading.model_dump_json()
+            result = self.mqtt_client.publish(topic, msg)
+            if result[0] == 0:
                 return True
-            else:
-                logging.error(f"Failed to send message to topic {self.topic}, status: {status}")
-                return False
+            logging.error(
+                f"HubMqttAdapter: publish to {topic} failed, status={result[0]}"
+            )
+            return False
         except Exception as e:
-            logging.error(f"Error in HubMqttAdapter.save_data: {e}")
+            logging.error(f"HubMqttAdapter.save_data: {e}")
             return False
 
     @staticmethod
-    def _connect_mqtt(broker, port):
-        """Create MQTT client"""
-        print(f"CONNECT TO {broker}:{port}")
-
+    def _connect_mqtt(broker: str, port: int) -> mqtt_client.Client:
         def on_connect(client, userdata, flags, rc):
             if rc == 0:
-                print(f"Connected to MQTT Broker ({broker}:{port})!")
+                logging.info(f"Edge->Hub MQTT connected ({broker}:{port})")
             else:
-                print("Failed to connect {broker}:{port}, return code %d\n", rc)
-                exit(rc)  # Stop execution
+                logging.error(f"Edge->Hub MQTT connection failed, rc={rc}")
 
         client = mqtt_client.Client()
         client.on_connect = on_connect

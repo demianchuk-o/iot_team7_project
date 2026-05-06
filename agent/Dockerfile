@@ -1,12 +1,12 @@
-# set base image (host OS)
-FROM python:latest
-# set the working directory in the container
+FROM python:3.11-slim
+
 WORKDIR /usr/agent
-# copy the dependencies file to the working directory
-COPY requirements.txt .
-# install dependencies
-RUN pip install -r requirements.txt
-# copy the content of the local src directory to the working directory
-COPY src/ .
-# command to run on container start
+
+COPY shared/ /usr/agent/shared/
+
+COPY agent/requirements.txt /usr/agent/
+RUN pip install --no-cache-dir -r /usr/agent/requirements.txt
+
+COPY agent/src/ /usr/agent/
+
 CMD ["python", "main.py"]
